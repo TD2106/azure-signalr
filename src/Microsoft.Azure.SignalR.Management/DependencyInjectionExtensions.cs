@@ -11,6 +11,8 @@ using Azure.Core.Serialization;
 using Microsoft.AspNetCore.Connections;
 using Microsoft.AspNetCore.SignalR;
 using Microsoft.AspNetCore.SignalR.Protocol;
+using Microsoft.Azure.SignalR.Management.ClientInvocation;
+using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Hosting;
@@ -119,6 +121,14 @@ namespace Microsoft.Azure.SignalR.Management
 
             services.AddRestClient();
             services.AddSingleton<NegotiateProcessor>();
+            services.AddSingleton<IServerNameProvider>(sp => new DefaultServerNameProvider());
+
+#if NET7_0_OR_GREATER
+            services.AddSingleton<IClientInvocationManager, WeakClientInvocationManager>();
+#else
+            services.AddSingleton<IClientInvocationManager, DummyClientInvocationManager>();
+#endif
+
             return services.TrySetProductInfo();
         }
 

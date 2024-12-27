@@ -5,6 +5,7 @@ using System;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.AspNetCore.SignalR;
+using Microsoft.AspNetCore.SignalR.Protocol;
 using Microsoft.Azure.SignalR.Protocol;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
@@ -14,12 +15,21 @@ namespace Microsoft.Azure.SignalR.Management
     internal class WebSocketsHubLifetimeManager<THub> : ServiceLifetimeManagerBase<THub>, IServiceHubLifetimeManager<THub> where THub : Hub
     {
         private readonly IOptions<ServiceManagerOptions> _serviceManagerOptions;
+        private readonly IClientInvocationManager _clientInvocationManager;
+        private readonly IServerNameProvider _serverNameProvider;
+        private readonly string _callerId;
+        private readonly string _hub;
 
         public WebSocketsHubLifetimeManager(IServiceConnectionManager<THub> serviceConnectionManager, IHubProtocolResolver protocolResolver,
-            IOptions<HubOptions> globalHubOptions, IOptions<HubOptions<THub>> hubOptions, ILoggerFactory loggerFactory, IOptions<ServiceManagerOptions> serviceManagerOptions) :
+            IOptions<HubOptions> globalHubOptions, IOptions<HubOptions<THub>> hubOptions, ILoggerFactory loggerFactory,
+            IOptions<ServiceManagerOptions> serviceManagerOptions, IClientInvocationManager clientInvocationManager, IServerNameProvider serverNameProvider) :
             base(serviceConnectionManager, protocolResolver, globalHubOptions, hubOptions, loggerFactory?.CreateLogger(nameof(WebSocketsHubLifetimeManager<Hub>)))
         {
             _serviceManagerOptions = serviceManagerOptions ?? throw new ArgumentNullException(nameof(serviceManagerOptions));
+            _clientInvocationManager = clientInvocationManager;
+            _serverNameProvider = serverNameProvider;
+            _callerId = _serverNameProvider.GetName();
+            _hub = typeof(THub).Name;
         }
 
         public Task RemoveFromAllGroupsAsync(string connectionId, CancellationToken cancellationToken = default)
@@ -214,5 +224,46 @@ namespace Microsoft.Azure.SignalR.Management
 
             return base.AppendMessageTracingId(message);
         }
+
+#if NET7_0_OR_GREATER
+        public override async Task<T> InvokeConnectionAsync<T>(string connectionId, string methodName, object?[] args, CancellationToken cancellationToken = default)
+        {
+            if (IsInvalidArgument(connectionId))
+            {
+                throw new ArgumentNullException(nameof(connectionId));
+            }
+
+            if (IsInvalidArgument(methodName))
+            {
+                throw new ArgumentNullException(nameof(methodName));
+            }
+
+            var invocationId = _clientInvocationManager.Caller.GenerateInvocationId(connectionId);
+            var message = AppendMessageTracingId(new ClientInvocationMessage(invocationId, connectionId, _callerId, SerializeAllProtocols(methodName, args, invocationId)));
+            await WriteAsync(message);
+            var task = _clientInvocationManager.Caller.AddInvocation<T>(_hub, connectionId, invocationId, cancellationToken);
+
+            // Exception handling follows https://source.dot.net/#Microsoft.AspNetCore.SignalR.Core/DefaultHubLifetimeManager.cs,349
+            try
+            {
+                return await task;
+            }
+            catch
+            {
+                _clientInvocationManager.Caller.RemoveInvocation(invocationId);
+                throw;
+            }
+        }
+
+        public override async Task SetConnectionResultAsync(string connectionId, CompletionMessage result)
+        {
+            if (IsInvalidArgument(connectionId))
+            {
+                throw new ArgumentException(NullOrEmptyStringErrorMessage, nameof(connectionId));
+            }
+
+
+        }
+#endif
     }
 }
