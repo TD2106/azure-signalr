@@ -4,7 +4,6 @@
 using System;
 using System.Threading;
 using System.Threading.Tasks;
-using Microsoft.Azure.SignalR.Management.ClientInvocation;
 using Microsoft.AspNetCore.SignalR.Protocol;
 using Xunit;
 using Microsoft.AspNetCore.SignalR;

@@ -11,7 +11,7 @@ using Microsoft.Azure.SignalR.Protocol;
 using Microsoft.AspNetCore.SignalR.Protocol;
 using Microsoft.AspNetCore.SignalR;
 
-namespace Microsoft.Azure.SignalR.Management.ClientInvocation
+namespace Microsoft.Azure.SignalR.Management
 {
     internal sealed class WeakCallerClientResultsManager : ICallerClientResultsManager, IInvocationBinder
     {
@@ -37,8 +37,6 @@ namespace Microsoft.Azure.SignalR.Management.ClientInvocation
                 cancellationToken,
                 () => TryCompleteResult(connectionId, CompletionMessage.WithError(invocationId, "Canceled")));
 
-            // When the caller server is also the client router, Azure SignalR service won't send a ServiceMappingMessage to server.
-            // To handle this condition, CallerClientResultsManager itself should record this mapping information rather than waiting for a ServiceMappingMessage sent by service. Only in this condition, this method is called with instanceId != null.
             var result = _pendingInvocations.TryAdd(invocationId,
                 new PendingInvocation(
                     typeof(T), connectionId, tcs,
@@ -109,35 +107,9 @@ namespace Microsoft.Azure.SignalR.Management.ClientInvocation
             }
         }
 
-        public bool TryCompleteResult(string connectionId, ClientCompletionMessage message)
-        {
-            var protocol = _hubProtocolResolver.GetProtocol(message.Protocol, null);
-            if (protocol == null)
-            {
-                var errorMessage = $"Not supported protocol {message.Protocol} by server.";
-                return TryCompleteResult(connectionId, CompletionMessage.WithError(message.InvocationId, errorMessage));
-            }
+        public bool TryCompleteResult(string connectionId, ClientCompletionMessage message) => throw new NotImplementedException();
 
-            var payload = message.Payload;
-            if (protocol.TryParseMessage(ref payload, this, out var hubMessage))
-            {
-                if (hubMessage is CompletionMessage completionMessage)
-                {
-                    return TryCompleteResult(connectionId, completionMessage);
-                }
-                else
-                {
-                    throw new InvalidOperationException($"The payload of ClientCompletionMessage whose type is {hubMessage.GetType().Name} cannot be parsed into CompletionMessage correctly.");
-                }
-            }
-            return false;
-        }
-
-        public bool TryCompleteResult(string connectionId, ErrorCompletionMessage message)
-        {
-            var errorMessage = CompletionMessage.WithError(message.InvocationId, message.Error);
-            return TryCompleteResult(connectionId, errorMessage);
-        }
+        public bool TryCompleteResult(string connectionId, ErrorCompletionMessage message) => throw new NotImplementedException();
 
         // Implemented for interface IInvocationBinder
         public Type GetReturnType(string invocationId)

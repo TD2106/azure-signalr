@@ -6,19 +6,18 @@ using Microsoft.AspNetCore.SignalR;
 
 #nullable enable
 
-namespace Microsoft.Azure.SignalR.Management.ClientInvocation
+namespace Microsoft.Azure.SignalR.Management
 {
     internal sealed class WeakClientInvocationManager : IClientInvocationManager
     {
         public ICallerClientResultsManager Caller { get; }
-        public IRoutedClientResultsManager Router { get; }
+        public IRoutedClientResultsManager? Router { get; }
 
         public WeakClientInvocationManager(IHubProtocolResolver hubProtocolResolver)
         {
             Caller = new WeakCallerClientResultsManager(
                 hubProtocolResolver ?? throw new ArgumentNullException(nameof(hubProtocolResolver))
             );
-            Router = new DummyRoutedClientResultsManager();
         }
 
         public void CleanupInvocationsByConnection(string connectionId)

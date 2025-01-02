@@ -255,7 +255,7 @@ namespace Microsoft.Azure.SignalR.Management
             }
         }
 
-        public override async Task SetConnectionResultAsync(string connectionId, CompletionMessage result)
+        public override Task SetConnectionResultAsync(string connectionId, CompletionMessage result)
         {
             if (IsInvalidArgument(connectionId))
             {
@@ -268,13 +268,13 @@ namespace Microsoft.Azure.SignalR.Management
             }
 
             // `TryCompletionResult` returns false when the corresponding invocation is not existing.
-            if (_clientInvocationManager.Caller.TryCompleteResult(connectionId, result))
+            if (!_clientInvocationManager.Caller.TryCompleteResult(connectionId, result))
             {
-                // For caller server, the only purpose of sending ClientCompletionMessage is to inform service to cleanup the invocation, which means only InvocationId and ConnectionId are needed.
-                // To avoid serialization for useless payload, we keep payload as empty bytes.
-                var message = AppendMessageTracingId(new ClientCompletionMessage(result.InvocationId, connectionId, _callerId, "", new ReadOnlyMemory<byte>()));
-                await WriteAsync(message);
+                Logger.LogInformation("Failed to set result for connection {connectionId} with invocationId {invocationId}", connectionId, result.InvocationId);
             }
+
+            // Since this method doesn't perform any asynchronous work, return a completed task.
+            return Task.CompletedTask;
         }
 #endif
     }
