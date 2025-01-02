@@ -262,7 +262,19 @@ namespace Microsoft.Azure.SignalR.Management
                 throw new ArgumentException(NullOrEmptyStringErrorMessage, nameof(connectionId));
             }
 
+            if (result == null || string.IsNullOrEmpty(result.InvocationId))
+            {
+                throw new ArgumentException("Invalid result or invocationId", nameof(result));
+            }
 
+            // `TryCompletionResult` returns false when the corresponding invocation is not existing.
+            if (_clientInvocationManager.Caller.TryCompleteResult(connectionId, result))
+            {
+                // For caller server, the only purpose of sending ClientCompletionMessage is to inform service to cleanup the invocation, which means only InvocationId and ConnectionId are needed.
+                // To avoid serialization for useless payload, we keep payload as empty bytes.
+                var message = AppendMessageTracingId(new ClientCompletionMessage(result.InvocationId, connectionId, _callerId, "", new ReadOnlyMemory<byte>()));
+                await WriteAsync(message);
+            }
         }
 #endif
     }

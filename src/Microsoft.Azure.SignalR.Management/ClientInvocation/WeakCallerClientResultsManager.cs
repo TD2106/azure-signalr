@@ -13,7 +13,7 @@ using Microsoft.AspNetCore.SignalR;
 
 namespace Microsoft.Azure.SignalR.Management.ClientInvocation
 {
-    internal sealed class CallerClientResultsManager : ICallerClientResultsManager, IInvocationBinder
+    internal sealed class WeakCallerClientResultsManager : ICallerClientResultsManager, IInvocationBinder
     {
         private readonly ConcurrentDictionary<string, PendingInvocation> _pendingInvocations = new();
         private readonly string _clientResultManagerId = Guid.NewGuid().ToString("N");
@@ -21,7 +21,7 @@ namespace Microsoft.Azure.SignalR.Management.ClientInvocation
 
         private readonly IHubProtocolResolver _hubProtocolResolver;
 
-        public CallerClientResultsManager(IHubProtocolResolver hubProtocolResolver)
+        public WeakCallerClientResultsManager(IHubProtocolResolver hubProtocolResolver)
         {
             _hubProtocolResolver = hubProtocolResolver ?? throw new ArgumentNullException(nameof(hubProtocolResolver));
         }
@@ -99,7 +99,6 @@ namespace Microsoft.Azure.SignalR.Management.ClientInvocation
                         item.Complete(item.Tcs, message);
                         return true;
                     }
-                    return false;
                 }
                 return false;
             }
@@ -173,10 +172,7 @@ namespace Microsoft.Azure.SignalR.Management.ClientInvocation
         // Unused, here to honor the IInvocationBinder interface but should never be called
         public Type GetStreamItemType(string streamId) => throw new NotImplementedException();
 
-        public void AddServiceMapping(ServiceMappingMessage serviceMappingMessage)
-        {
-            throw new NotImplementedException();
-        }
+        public void AddServiceMapping(ServiceMappingMessage serviceMappingMessage) => throw new NotImplementedException();
 
         private record PendingInvocation(Type Type, string ConnectionId, object Tcs, Action<object, CompletionMessage> Complete)
         {
