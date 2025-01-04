@@ -13,10 +13,13 @@ namespace Microsoft.Azure.SignalR.Management
         public ICallerClientResultsManager Caller { get; }
         public IRoutedClientResultsManager? Router { get; }
 
-        public WeakClientInvocationManager(IHubProtocolResolver hubProtocolResolver)
+        public WeakClientInvocationManager(IServiceEndpointManager serviceEndpointManager, IEndpointRouter endpointRouter)
         {
+            var ackHandler = new AckHandler();
             Caller = new WeakCallerClientResultsManager(
-                hubProtocolResolver ?? throw new ArgumentNullException(nameof(hubProtocolResolver))
+                serviceEndpointManager ?? throw new ArgumentNullException(nameof(serviceEndpointManager)),
+                endpointRouter ?? throw new ArgumentException(nameof(endpointRouter)),
+                ackHandler
             );
         }
 

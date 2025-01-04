@@ -2,7 +2,6 @@
 // Licensed under the MIT license. See LICENSE file in the project root for full license information.
 #if NET7_0_OR_GREATER
 using System;
-using System.Diagnostics;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Collections.Generic;
@@ -10,6 +9,7 @@ using System.Collections.Concurrent;
 using Microsoft.Azure.SignalR.Protocol;
 using Microsoft.AspNetCore.SignalR.Protocol;
 using Microsoft.AspNetCore.SignalR;
+using System.Linq;
 
 namespace Microsoft.Azure.SignalR.Management
 {
@@ -18,12 +18,16 @@ namespace Microsoft.Azure.SignalR.Management
         private readonly ConcurrentDictionary<string, PendingInvocation> _pendingInvocations = new();
         private readonly string _clientResultManagerId = Guid.NewGuid().ToString("N");
         private long _lastInvocationId = 0;
+        private readonly AckHandler _ackHandler;
+        private readonly IServiceEndpointManager _endpointManager;
+        private readonly IEndpointRouter _endpointRouter;
 
-        private readonly IHubProtocolResolver _hubProtocolResolver;
 
-        public WeakCallerClientResultsManager(IHubProtocolResolver hubProtocolResolver)
+        public WeakCallerClientResultsManager(IServiceEndpointManager serviceEndpointManager, IEndpointRouter endpointRouter, AckHandler ackHandler)
         {
-            _hubProtocolResolver = hubProtocolResolver ?? throw new ArgumentNullException(nameof(hubProtocolResolver));
+            _endpointManager = serviceEndpointManager;
+            _endpointRouter = endpointRouter;
+            _ackHandler = ackHandler;
         }
 
         public string GenerateInvocationId(string connectionId)
@@ -37,9 +41,16 @@ namespace Microsoft.Azure.SignalR.Management
                 cancellationToken,
                 () => TryCompleteResult(connectionId, CompletionMessage.WithError(invocationId, "Canceled")));
 
+            var serviceEndpoints = _endpointManager.GetEndpoints(hub);
+            var expectedAckCount = _endpointRouter.GetEndpointsForConnection(connectionId, serviceEndpoints).Count();
+
+            var multiAck = _ackHandler.CreateMultiAck(out var ackId);
+
+            _ackHandler.SetExpectedCount(ackId, expectedAckCount);
+
             var result = _pendingInvocations.TryAdd(invocationId,
                 new PendingInvocation(
-                    typeof(T), connectionId, tcs,
+                    typeof(T), connectionId, tcs, ackId, multiAck,
                     static (state, completionMessage) =>
                     {
                         var tcs = (TaskCompletionSourceWithCancellation<T>)state;
@@ -54,7 +65,6 @@ namespace Microsoft.Azure.SignalR.Management
                         }
                     })
             );
-            Debug.Assert(result);
 
             tcs.RegisterCancellation();
 
@@ -89,9 +99,16 @@ namespace Microsoft.Azure.SignalR.Management
                     // Follow https://github.com/dotnet/aspnetcore/blob/main/src/SignalR/common/Shared/ClientResultsManager.cs#L58
                     throw new InvalidOperationException($"Connection ID '{connectionId}' is not valid for invocation ID '{message.InvocationId}'.");
                 }
-                
-                if (message.HasResult)
+
+                // Considering multiple endpoints, wait until 
+                // 1. Received a non-error CompletionMessage
+                // or 2. Received messages from all endpoints
+                _ackHandler.TriggerAck(item.AckId);
+                if (message.HasResult || item.ackTask.IsCompletedSuccessfully)
                 {
+                    // if false the connection disconnected right after the above TryGetValue
+                    // or someone else completed the invocation (likely a bad client)
+                    // we'll ignore both cases
                     if (_pendingInvocations.TryRemove(message.InvocationId, out _))
                     {
                         item.Complete(item.Tcs, message);
@@ -146,7 +163,7 @@ namespace Microsoft.Azure.SignalR.Management
 
         public void AddServiceMapping(ServiceMappingMessage serviceMappingMessage) => throw new NotImplementedException();
 
-        private record PendingInvocation(Type Type, string ConnectionId, object Tcs, Action<object, CompletionMessage> Complete)
+        private record PendingInvocation(Type Type, string ConnectionId, object Tcs, int AckId, Task ackTask, Action<object, CompletionMessage> Complete)
         {
         }
     }

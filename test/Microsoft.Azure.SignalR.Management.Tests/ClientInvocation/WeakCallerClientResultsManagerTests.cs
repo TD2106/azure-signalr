@@ -2,36 +2,34 @@
 // Licensed under the MIT license. See LICENSE file in the project root for full license information.
 
 using System;
+using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.AspNetCore.SignalR.Protocol;
+using Moq;
 using Xunit;
-using Microsoft.AspNetCore.SignalR;
-using System.Collections.Generic;
 
 namespace Microsoft.Azure.SignalR.Management.Tests
 {
     public class WeakCallerClientResultsManagerTests
     {
-        private class MockHubProtocolResolver : IHubProtocolResolver
-        {
-            public IReadOnlyList<IHubProtocol> AllProtocols => throw new NotImplementedException();
 
-            public IHubProtocol GetProtocol(string protocolName, IReadOnlyList<string> supportedProtocols)
-            {
-                if (protocolName == "json")
-                {
-                    return new JsonHubProtocol();
-                }
-                return null;
-            }
+        private WeakCallerClientResultsManager CreateManager(
+            IServiceEndpointManager endpointManager = null,
+            IEndpointRouter endpointRouter = null)
+        {
+            var mockEndpointManager = endpointManager ?? Mock.Of<IServiceEndpointManager>();
+            var mockEndpointRouter = endpointRouter ?? Mock.Of<IEndpointRouter>();
+            var ackHandler = new AckHandler();
+
+            return new WeakCallerClientResultsManager(mockEndpointManager, mockEndpointRouter, ackHandler);
         }
+
 
         [Fact]
         public async Task AddInvocation_ShouldAddAndCompleteSuccessfully()
         {
-            var resolver = new MockHubProtocolResolver();
-            var manager = new WeakCallerClientResultsManager(resolver);
+            var manager = CreateManager();
             var cancellationToken = new CancellationToken();
 
             var connectionId = "connection1";
@@ -49,8 +47,7 @@ namespace Microsoft.Azure.SignalR.Management.Tests
         [Fact]
         public void CleanupInvocationsByConnection_ShouldRemoveAllMatchingInvocations()
         {
-            var resolver = new MockHubProtocolResolver();
-            var manager = new WeakCallerClientResultsManager(resolver);
+            var manager = CreateManager();
             var cancellationToken = new CancellationToken();
 
             var connectionId = "connection1";
@@ -70,8 +67,7 @@ namespace Microsoft.Azure.SignalR.Management.Tests
         [Fact]
         public void TryCompleteResult_ShouldReturnFalseForUnknownInvocationId()
         {
-            var resolver = new MockHubProtocolResolver();
-            var manager = new WeakCallerClientResultsManager(resolver);
+            var manager = CreateManager();
 
             var connectionId = "connection1";
             var completionMessage = CompletionMessage.WithError("unknownId", "Error");
@@ -84,8 +80,7 @@ namespace Microsoft.Azure.SignalR.Management.Tests
         [Fact]
         public void GetReturnType_ShouldThrowForUnknownInvocationId()
         {
-            var resolver = new MockHubProtocolResolver();
-            var manager = new WeakCallerClientResultsManager(resolver);
+            var manager = CreateManager();
 
             var invocationId = "unknownId";
 
@@ -96,8 +91,7 @@ namespace Microsoft.Azure.SignalR.Management.Tests
         public void GetReturnType_ShouldReturnCorrectTypeForKnownInvocationId()
         {
             // Arrange
-            var resolver = new MockHubProtocolResolver();
-            var manager = new WeakCallerClientResultsManager(resolver);
+            var manager = CreateManager();
             var cancellationToken = new CancellationToken();
 
             var connectionId = "connection1";
@@ -112,5 +106,81 @@ namespace Microsoft.Azure.SignalR.Management.Tests
             // Assert
             Assert.Equal(typeof(string), returnType);
         }
+
+        [Fact]
+        public async Task AddInvocation_ShouldCompleteSuccessfullyAcrossMultipleEndpoints()
+        {
+            // Arrange
+            var mockEndpointManager = new Mock<IServiceEndpointManager>();
+            var mockEndpointRouter = new Mock<IEndpointRouter>();
+
+            // endpoints are not really used here, just need to return the size
+            IEnumerable<ServiceEndpoint> endpoints = [null, null];
+
+            var connectionId = "connection1";
+            var hub = "testHub";
+
+            mockEndpointRouter
+                .Setup(router => router.GetEndpointsForConnection(It.Is<string>(id => id == connectionId), It.IsAny<IEnumerable<ServiceEndpoint>>()))
+                .Returns(endpoints);
+
+            var manager = CreateManager(mockEndpointManager.Object, mockEndpointRouter.Object);
+            var cancellationToken = new CancellationToken();
+            var invocationId = manager.GenerateInvocationId(connectionId);
+
+
+
+            // Act
+            var task = manager.AddInvocation<string>(hub, connectionId, invocationId, cancellationToken);
+
+            var completionMessage1 = CompletionMessage.Empty(invocationId);
+            manager.TryCompleteResult(connectionId, completionMessage1);
+            Assert.False(task.IsCompleted, "The task should not be completed after the first message.");
+
+
+            var completionMessage2 = CompletionMessage.WithResult(invocationId, "FinalResult");
+            manager.TryCompleteResult(connectionId, completionMessage2);
+
+            var result = await task;
+
+            // Assert
+            Assert.Equal("FinalResult", result);
+        }
+
+        [Fact]
+        public async Task AddInvocation_ShouldCompleteSuccessfullyWhenFirstMessageHasResult()
+        {
+            // Arrange
+            var mockEndpointManager = new Mock<IServiceEndpointManager>();
+            var mockEndpointRouter = new Mock<IEndpointRouter>();
+
+            // endpoints are not really used here, just need to return the size
+            IEnumerable<ServiceEndpoint> endpoints = [null, null];
+
+            var connectionId = "connection1";
+            var hub = "testHub";
+
+            mockEndpointRouter
+                .Setup(router => router.GetEndpointsForConnection(It.Is<string>(id => id == connectionId), It.IsAny<IEnumerable<ServiceEndpoint>>()))
+                .Returns(endpoints);
+
+            var manager = CreateManager(mockEndpointManager.Object, mockEndpointRouter.Object);
+            var cancellationToken = new CancellationToken();
+            var invocationId = manager.GenerateInvocationId(connectionId);
+
+
+
+            // Act
+            var task = manager.AddInvocation<string>(hub, connectionId, invocationId, cancellationToken);
+
+            var completionMessage1 = CompletionMessage.WithResult(invocationId, "Result");
+            manager.TryCompleteResult(connectionId, completionMessage1);
+            Assert.True(task.IsCompleted);
+            var result = await task;
+
+            // Assert
+            Assert.Equal("Result", result);
+        }
+
     }
 }
