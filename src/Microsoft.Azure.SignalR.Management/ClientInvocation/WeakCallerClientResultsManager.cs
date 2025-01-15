@@ -6,10 +6,10 @@ using System.Threading;
 using System.Threading.Tasks;
 using System.Collections.Generic;
 using System.Collections.Concurrent;
+using System.Linq;
 using Microsoft.Azure.SignalR.Protocol;
 using Microsoft.AspNetCore.SignalR.Protocol;
 using Microsoft.AspNetCore.SignalR;
-using System.Linq;
 
 namespace Microsoft.Azure.SignalR.Management
 {
